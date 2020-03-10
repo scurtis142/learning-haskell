@@ -1,0 +1,12 @@
+NOTES:
+
+ghcid -> used for altomatically reloading files into ghci
+
+
+types starting with lower case letter are polymorphic (generic)
+
+
+papers to read:
+theorms for free
+fast and loose reasoning is morally correct
+
