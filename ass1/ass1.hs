@@ -75,9 +75,9 @@ data Solution =
    deriving (Eq)
 
 instance Show Solution where
-   show (Solution n1 n2 n3) = show (num129_to_int n1) ++ " + " 
-      ++ show (num129_to_int n2) ++ " + " 
-      ++ show (num129_to_int n3) ++ " = " 
+   show (Solution n1 n2 n3) = show (num129_to_int n1) ++ " + "
+      ++ show (num129_to_int n2) ++ " + "
+      ++ show (num129_to_int n3) ++ " = "
       ++ show (num129_to_int n1 + num129_to_int n2 + num129_to_int n3)
 
 -- the possible results of a valid number selection
@@ -124,17 +124,17 @@ player2check = getSolution . getPlayer2Moves
 -- fix ugly syntax, could use 'let in'
 -- select a number from the game state
 selectNumber :: Number_1to9 -> GameState -> NumberSelected
-selectNumber n (GameState state) 
+selectNumber n (GameState state)
    | n `elem` state = AlreadySelected n
    | player1won /= Nothing = case player1won  of
-      (Just solution) -> Selected $ Player1Wins solution 
+      (Just solution) -> Selected $ Player1Wins solution
    | player2won /= Nothing = case player2won of
       (Just solution) -> Selected $ Player2Wins solution
    | length (state ++ [n]) == 9 = Selected Draw
    | otherwise      = Selected (KeepPlaying (GameState (state ++ [n])))
    where player1won = player1check (GameState (state ++ [n]))
          player2won = player2check (GameState (state ++ [n]))
-                                                                        
+
 
 getSolution :: PlayerMoves -> Maybe Solution
 getSolution moves = case testWin of
@@ -146,8 +146,8 @@ getSolution moves = case testWin of
 
 -- returns whether or not the game state is a draw
 isDraw :: GameState -> Bool
-isDraw (GameState state) = player1check (GameState state) == Nothing 
-                           && player2check (GameState state) == Nothing 
+isDraw (GameState state) = player1check (GameState state) == Nothing
+                           && player2check (GameState state) == Nothing
                            && length state == 9
 
 
