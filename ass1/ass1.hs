@@ -38,14 +38,14 @@ is_num129 :: Char -> Bool
 is_num129 x = if x > '0' && x <= '9' then True else False
 
 
-instance Num Number_1to9 where
-   (+) = \a b -> int_to_num129 (num129_to_int a + num129_to_int b)
-   (-) = \a b -> int_to_num129 (num129_to_int a - num129_to_int b)
-   (*) = \a b -> int_to_num129 (num129_to_int a * num129_to_int b)
-   negate n = int_to_num129 $ 10 - num129_to_int n
-   abs n = n
-   signum n = 1
-   fromInteger = int_to_num129 . fromIntegral
+-- instance Num Number_1to9 where
+--    (+) = \a b -> int_to_num129 (num129_to_int a + num129_to_int b)
+--    (-) = \a b -> int_to_num129 (num129_to_int a - num129_to_int b)
+--    (*) = \a b -> int_to_num129 (num129_to_int a * num129_to_int b)
+--    negate n = int_to_num129 $ 10 - num129_to_int n
+--    abs n = n
+--    signum n = 1
+--    fromInteger = int_to_num129 . fromIntegral
 
 
 -- I have chosen to use the Haskell built in List data type, as that is 
