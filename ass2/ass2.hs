@@ -155,9 +155,6 @@ some p = NonEmptyList <$> p <*> many p    -- same as vvv
 many :: Parser a -> Parser (List a)
 many p = liftA2 Cons p (many p) <|> pure Nil
 
--- liftA2 :: (Applicative k) => (a -> b -> c) -> k a -> k b -> k c
--- liftA2 f ka kb = f <$> ka <*> kb
-
 
 -- Parse zero or more values separated by something
 sepBy :: Parser a -> Parser sep -> Parser (List a)
@@ -186,11 +183,7 @@ parseSignedInteger =
 -- reassociate the syntax tree according to order of precedence ??
 -- I think this might be like changing 2 + 5 * 3 to 5 * 3 + 2 (and then everything can be done left to right??)
 reassociate :: Expression -> Expression
-reassociate = error "todo"
-
-
-data Triple a b c  = Triple a b c
-   deriving (Eq, Show)
+reassociate e = e
 
 
 -- converts a string into an expression, or an error
@@ -198,22 +191,17 @@ data Triple a b c  = Triple a b c
 -- might have to have a seperate instance for term to stop recursion
 
 {-
-   T -> A o T | ( T ) | N
-   A -> N | ( T )
-   or, equivalently
    T -> A o T | A
    A -> N | ( T )
 -}
 
+
 parseExpression :: Parser Expression
 parseExpression =
-   (helper <$> ((liftA3 Triple) parseExtra parseOperator parseExpression))
+   (liftA3 Op parseExtra parseOperator parseExpression)
    <|> parseExtra
-   
-   -- this was the old way, but uses duplicate code
-   --(char '(' *> parseExpression <* char ')')
-   -- <|> (Number <$> parseSignedInteger)
       
+
 parseExtra :: Parser Expression
 parseExtra = (Number <$> parseSignedInteger)
    <|> (Parens <$> (char '(' *> parseExpression <* char ')'))
@@ -228,9 +216,6 @@ parseOperator = char ' ' *> Parser (\s ->
    ('/':rest) -> ParseSuccess Divide rest
    _ -> ParseError "Operation not defined") <* char ' '
 
-helper :: (Triple Expression Operation Expression) -> Expression
-helper (Triple exp1 op exp2) = Op exp1 op exp2
-
 -- could make functions parseOperator, parseTerm, parseNumber, parseDigit, parseWhitespace
 -- need to know how to split strings
 -- would fuctor/applicative/monad be useful here?
@@ -244,11 +229,7 @@ simplify (Op (Number 0) Multiply expr) = Number 0
 simplify (Op expr Multiply (Number 0)) = Number 0
 simplify (Op expr Multiply (Number 1)) = simplify expr
 simplify (Op (Number 1) Multiply expr) = simplify expr
--- Even though expr could be 0 here, 
--- but division by 0 is undefined and 
--- can return anything so we are ok in 
--- this case
-simplify (Op (Number 0) Divide expr) = Number 0 
+simplify (Op (Number 0) Divide expr) = Number 0 -- Division by 0 is allowed to return anything so we are ok in this case
 simplify expr = expr
 
 -- runs the property tests for simplify
@@ -269,35 +250,21 @@ calculate (Op exp1 op exp2) = case op of
 
 -- runs the calculator interactively
 runCalculator :: IO ()
-runCalculator = error "todo"
-   -- line <- getLine
-   -- case runParser parseExpression line of
-   --    ParseError err -> putStrLn err
-   --    ParseSuccess exp rest -> putStrLn . show . calculate . simplify $ exp
+runCalculator = do
+   putStr ">>> "
+   line <- getLine
+   if line == "q" 
+      then return ()
+      else do
+         evaluate line
+         runCalculator
+
+evaluate :: String -> IO ()
+evaluate line  = case parsed of
+   ParseError err -> putStrLn err
+   ParseSuccess n rest -> putStrLn . show $ n
+   where parsed = calculate . simplify . reassociate <$> (runParser (parseExpression <* endOfInput) line)
 
 
-
-
-
-
--- Identity rules There are some simple algebraic laws that we can use to
--- simplify a calculator expression. For example, if we add or subtract 0, we know
--- that we can just use the other number. The following property tests demonstrate
--- the minimum required identity rules that should apply to the Expression
--- Use these property tests for the simplification function in your API:
--- testAddRightIdentity :: String -> Bool
--- testAddRightIdentity s =
--- simplify (Op expr Add (Number 0)) == simplify expr
--- testSubtractRightIdentity :: Expression -> Bool
--- testSubtractRightIdentity expr =
--- simplify (Op expr Subtract (Number 0)) == simplify expr
--- testMultiplyLeftZero :: Expession -> Bool
--- testMultiplyLeftZero expr =
--- simplify (Op (Number 0) Multiply expr) == Number 0
--- testMultiplyRightIdentity :: Expression -> Bool
--- testMultiplyRightIdentity expr =
--- simplify (Op expr Multiply (Number 1)) == simplify expr
--- There are a few useful simplifications that are missing from the above list. Add
--- similar simplifications and write property tests for them.
 -- Import the test framework introduced during the lectures. Create a
 -- genExpression :: Gen Expression to execute the property tests.
