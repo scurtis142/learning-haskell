@@ -61,7 +61,6 @@ data ParseResult x =
    | ParseSuccess x String
    deriving (Eq, Show)
 
--- XXX !!!! these instances are copied from the prac, make sure they are correct and sufficiantly different
 
 instance Functor ParseResult where
    fmap f pr = case pr of
@@ -79,35 +78,39 @@ instance Functor Parser where
 instance Applicative Parser where
    pure a = Parser (\s -> ParseSuccess a s)
 
-   (<*>) (Parser f) (Parser a) = Parser (
-    \s -> case f s of
+   (<*>) (Parser f) (Parser a) = Parser (\s -> case f s of
       ParseError err -> ParseError err
       ParseSuccess f s' -> case a s' of
-        ParseError err -> ParseError err
-        ParseSuccess a s'' -> ParseSuccess (f a) s'')
+         ParseError err -> ParseError err
+         ParseSuccess a s'' -> ParseSuccess (f a) s'')
 
 
 instance Monad Parser where
    return a = Parser (\s -> ParseSuccess a s)
 
    (>>=) (Parser a) f = Parser (\s ->
-         case a s of
-            ParseError err -> ParseError err
-            ParseSuccess x s' -> let (Parser b) = (f x) in b s')
+      case a s of
+         ParseError err -> ParseError err
+         ParseSuccess x s' -> let (Parser b) = (f x) in b s')
 
 
-{- PRIVATE FUNCTIONS -}
+{- HELPER FUNCTIONS -}
 
+-- The following 12 functions modifyed from:
+-- https://gitlab.com/comp3400/pracs-outcome/-/blob/master/20200403/0400-0600Z/Prac4.hs
 
+-- Runs a parser
 runParser :: Parser a -> String -> ParseResult a
 runParser (Parser f) = f
 
 
+-- FoldRight for the (List a) type
 foldRight :: (a -> b -> b) -> b -> List a -> b
 foldRight _ b Nil      = b
 foldRight f b (h `Cons` t) = f h (foldRight f b t)
 
 
+-- FoldLeft for the (List a) type
 foldLeft :: (b -> a -> b) -> b -> List a -> b
 foldLeft _ b Nil      = b
 foldLeft f b (h `Cons` t) = let b' = f b h in b' `seq` foldLeft f b' t
@@ -126,24 +129,6 @@ satisfy pred = Parser
 -- Parse a specific character
 char :: Char -> Parser Char
 char c = satisfy (== c)
-
-
--- Handles the trailing string after expression.
--- If the trailing string contains a non-space
--- character, we want to report that over the 
--- whitespace, as it is more useful, but if there
--- is no non-space characters then report whitespace
--- as unexpected
-endStringParser :: Parser ()
-endStringParser = Parser handleEndString
-
-
--- Helper function for endStringParser
-handleEndString :: String -> ParseResult ()
-handleEndString (' ':[]) = ParseError "Parse error: unexpected ' '"
-handleEndString (' ':s)  = handleEndString s
-handleEndString (x:_)    = ParseError ("Parse error: unexpected '" ++ [x] ++ "'")
-handleEndString []       = ParseSuccess () ""
 
 
 -- If the first parser fails, try the second parser
@@ -193,7 +178,27 @@ parseSignedInt :: Parser Int
 parseSignedInt =
   ((char '-' $> ((-1) *)) <*> parseInt) <|> parseInt
 
+
+-- Handles the trailing string after expression.
+-- If the trailing string contains a non-space
+-- character, we want to report that over the 
+-- whitespace, as it is more useful, but if there
+-- is no non-space characters then report whitespace
+-- as unexpected
+endStringParser :: Parser ()
+endStringParser = Parser handleEndString
+
+
+-- Helper function for endStringParser
+handleEndString :: String -> ParseResult ()
+handleEndString (' ':[]) = ParseError "Parse error: unexpected ' '"
+handleEndString (' ':s)  = handleEndString s
+handleEndString (x:_)    = ParseError ("Parse error: unexpected '" ++ [x] ++ "'")
+handleEndString []       = ParseSuccess () ""
+
+
 {- API FUNCTIONS -}
+
 
 -- Reassociate the syntax tree according to order of precedence
 -- e.g. Op (Op (Number 3) Add (Number 5)) Multiply (Number 8)
