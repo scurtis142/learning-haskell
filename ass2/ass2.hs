@@ -80,9 +80,9 @@ instance Applicative Parser where
 
    (<*>) (Parser f) (Parser a) = Parser (\s -> case f s of
       ParseError err -> ParseError err
-      ParseSuccess f s' -> case a s' of
+      ParseSuccess f' s' -> case a s' of
          ParseError err -> ParseError err
-         ParseSuccess a s'' -> ParseSuccess (f a) s'')
+         ParseSuccess a' s'' -> ParseSuccess (f' a') s'')
 
 
 instance Monad Parser where
@@ -119,9 +119,9 @@ foldLeft f b (h `Cons` t) = let b' = f b h in b' `seq` foldLeft f b' t
 -- Succeeds if string is non-empty and next Char satisfies
 -- the predicate
 satisfy :: (Char -> Bool) -> Parser Char
-satisfy pred = Parser
+satisfy predicate = Parser
   (\s -> case s of
-    (c:rest) -> if pred c then ParseSuccess c rest else
+    (c:rest) -> if predicate c then ParseSuccess c rest else
                   ParseError ("Parse error: unexpected '" ++ [c] ++ "'")
     _ -> ParseError "Parse error: unexpected end of input")
 
@@ -154,8 +154,8 @@ many p = liftA2 Cons p (many p) <|> pure Nil
 
 -- Parse zero or more values separated by something
 sepBy :: Parser a -> Parser sep -> Parser (List a)
-sepBy elem sep =
-  liftA2 Cons elem (many (sep *> elem))
+sepBy element sep =
+  liftA2 Cons element (many (sep *> element))
   <|> pure Nil
 
 
@@ -197,6 +197,11 @@ handleEndString (x:_)    = ParseError ("Parse error: unexpected '" ++ [x] ++ "'"
 handleEndString []       = ParseSuccess () ""
 
 
+-- Given a function and a pair, apply the arguments of pair to function
+takePair :: (a -> b -> c) -> ((Pair a b) -> c)
+takePair f = \(Pair a b) -> f a b
+
+
 {- API FUNCTIONS -}
 
 
@@ -205,43 +210,44 @@ handleEndString []       = ParseSuccess () ""
 --   to Op (Number 3) Add (Op (Number 5) Multiply (Number 8))
 reassociate :: Expression -> Expression
 reassociate (Number n) = Number n
-reassociate (Parens exp) = Parens (reassociate exp)
-reassociate (Op exp1 op1 (Op exp2 op2 exp3)) = if op1 >= op2
-   then (Op (Op (reassociate exp1) op1 (reassociate exp2)) op2 (reassociate exp3))
-   else (Op (reassociate exp1) op1 (Op (reassociate exp2) op2 (reassociate exp3)))
-reassociate (Op (Op exp1 op1 exp2) op2 exp3) = if op1 >= op2
-   then (Op (Op (reassociate exp1) op1 (reassociate exp2)) op2 (reassociate exp3))
-   else (Op (reassociate exp1) op1 (Op (reassociate exp2) op2 (reassociate exp3)))
-reassociate (Op exp1 op exp2) = Op (reassociate exp1) op (reassociate exp2)
+reassociate (Parens expr) = Parens (reassociate expr)
+-- If operators are equal, we still want to associate left
+reassociate (Op expr1 op1 (Op expr2 op2 expr3)) = if op1 >= op2
+   then (Op (Op (reassociate expr1) op1 (reassociate expr2)) op2 (reassociate expr3))
+   else (Op (reassociate expr1) op1 (Op (reassociate expr2) op2 (reassociate expr3)))
+reassociate (Op (Op expr1 op1 expr2) op2 expr3) = if op1 >= op2
+   then (Op (Op (reassociate expr1) op1 (reassociate expr2)) op2 (reassociate expr3))
+   else (Op (reassociate expr1) op1 (Op (reassociate expr2) op2 (reassociate expr3)))
+reassociate (Op expr1 op expr2) = Op (reassociate expr1) op (reassociate expr2)
 
 
-{-
-   Changed the grammer slighlty to remove ambiguity
+{--
+   Changed the grammer slightly to avoid infinite left recursion
    Still has same functionality
 
-   Term        -> Term' Operator Term | Term'
-   Term'       -> Number | '(' Term ')'
+   Term        -> N [Operator N]
+   N           -> Number | '(' Term ')'
    Operator    -> Whitespace Operator' Whitespace
    Operator'   -> '+' | '-' | '*' | '/'
    Number      -> ['-'] Digit+
    Digit       -> '0'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9'
    Whitespace  -> ' '+
 
-   Note, this means we will recurse to the right, i.e. get
-   syntax trees of the form (Op exp1 op1 (Op exp2 op2 exp3))
--}
+--}
 
--- Converts a string into an expression, or an error
+
+-- Converts a string into an Expression, or Error
 parseExpression :: Parser Expression
-parseExpression = reassociate <$>
-   (liftA3 Op parseExtra parseOperator parseExpression)
-   <|> parseExtra
-      
+parseExpression = (reassociate . takePair leftAssociate) <$> liftA2 Pair parseN (many (liftA2 Pair parseOperator parseN))
+   
 
--- Parse either a Number or Expression in parenthesis
-parseExtra :: Parser Expression
-parseExtra = (Number <$> parseSignedInt)
-   <|> (Parens <$> (char '(' *> parseExpression <* char ')'))
+-- Given an expression and a list of operator - expression pairs, create a
+-- new expression with sub expressions left associated
+-- e.g. leftAssociate 6 [(+,7) (-,8) (* 9)] = Op (Op (Op 6 + 7) - 8) * 9 
+-- Note it doesn't factor in operator predicence, that is done by the reassociate function
+leftAssociate :: Expression -> List (Pair Operation Expression) -> Expression
+leftAssociate expr Nil = expr
+leftAssociate expr1 (Cons (Pair op expr2) list) = leftAssociate (Op expr1 op expr2) list
 
 
 -- Parser for an Operation
@@ -256,6 +262,13 @@ parseOperator = some (char ' ') *> Parser (\s -> case s of
    ('/':rest) -> ParseSuccess Divide rest
    (x:_)      -> ParseError ("Parse error: unexpected '" ++ [x] ++ "'")
    _          -> ParseError "Parse error: unexpected end of input") <* some (char ' ')
+
+
+-- Parse either a number or '(' expression ')'
+-- See comment on grammar above
+parseN :: Parser Expression
+parseN = (Number <$> parseSignedInt)
+   <|> (Parens <$> (char '(' *> parseExpression <* char ')'))
 
 
 -- Removes very simple expressions
@@ -275,14 +288,14 @@ simplify expr                          = expr
 -- Takes an expression and reduces it to an answer
 calculate :: Expression -> Int
 calculate (Number n) = n
-calculate (Parens exp) = calculate exp
-calculate (Op exp1 op exp2) = case op of
+calculate (Parens expr) = calculate expr
+calculate (Op expr1 op expr2) = case op of
    Add      -> value1 + value2
    Subtract -> value1 - value2
    Divide   -> value1 `div` value2
    Multiply -> value1 * value2
-   where value1 = calculate exp1
-         value2 = calculate exp2
+   where value1 = calculate expr1
+         value2 = calculate expr2
 
 
 -- Runs the calculator interactively
@@ -332,7 +345,7 @@ genExpression = Gen (\size gen -> reassociate $
 -- I originally had int `mod` 4 but wsa getting an unsually large
 -- number of 0's for the results, so changed to 5.
 genOperation :: Gen Operation
-genOperation = Gen (\_ gen -> let (int, newGen) = next gen in
+genOperation = Gen (\_ gen -> let (int, _) = next gen in
       case int `mod` 5 of
          0 -> Divide
          1 -> Subtract
