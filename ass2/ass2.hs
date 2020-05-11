@@ -181,7 +181,7 @@ parseSignedInt =
 
 -- Handles the trailing string after expression.
 -- If the trailing string contains a non-space
--- character, we want to report that over the 
+-- character, we want to report that over the
 -- whitespace, as it is more useful, but if there
 -- is no non-space characters then report whitespace
 -- as unexpected
@@ -239,11 +239,11 @@ reassociate (Op expr1 op expr2) = Op (reassociate expr1) op (reassociate expr2)
 -- Converts a string into an Expression, or Error
 parseExpression :: Parser Expression
 parseExpression = (reassociate . takePair leftAssociate) <$> liftA2 Pair parseN (many (liftA2 Pair parseOperator parseN))
-   
+
 
 -- Given an expression and a list of operator - expression pairs, create a
 -- new expression with sub expressions left associated
--- e.g. leftAssociate 6 [(+,7) (-,8) (* 9)] = Op (Op (Op 6 + 7) - 8) * 9 
+-- e.g. leftAssociate 6 [(+,7) (-,8) (* 9)] = Op (Op (Op 6 + 7) - 8) * 9
 -- Note it doesn't factor in operator predicence, that is done by the reassociate function
 leftAssociate :: Expression -> List (Pair Operation Expression) -> Expression
 leftAssociate expr Nil = expr
@@ -251,11 +251,11 @@ leftAssociate expr1 (Cons (Pair op expr2) list) = leftAssociate (Op expr1 op exp
 
 
 -- Parser for an Operation
--- Note: changeing 'some' to 'many' here would allow 0 or some 
+-- Note: changeing 'some' to 'many' here would allow 0 or some
 -- instances of whitespace, which I think is better, but the spec
 -- specifies one or more.
 parseOperator :: Parser Operation
-parseOperator = some (char ' ') *> Parser (\s -> case s of    
+parseOperator = some (char ' ') *> Parser (\s -> case s of
    ('+':rest) -> ParseSuccess Add rest
    ('-':rest) -> ParseSuccess Subtract rest
    ('*':rest) -> ParseSuccess Multiply rest
@@ -281,7 +281,7 @@ simplify (Op _ Multiply (Number 0))    = Number 0
 simplify (Op expr Multiply (Number 1)) = simplify expr
 simplify (Op (Number 1) Multiply expr) = simplify expr
 -- Division by 0 is allowed to return anything so we are ok in this case
-simplify (Op (Number 0) Divide _)      = Number 0 
+simplify (Op (Number 0) Divide _)      = Number 0
 simplify expr                          = expr
 
 
@@ -303,7 +303,7 @@ runCalculator :: IO ()
 runCalculator = do
    putStr ">>> "
    line <- getLine
-   if line == "q" 
+   if line == "q"
       then return ()
       else do
          handleLine line
@@ -328,15 +328,15 @@ genExpression = Gen (\size gen -> reassociate $
       let (int, newGen) = next gen in
          if (int `mod` 4 == 0) then
             Parens (generate size newGen genExpression)
-         else 
+         else
             if size == 1 then
                Number . mod int $ 100
             else let (newGen1, newGen2) = split newGen in
                -- Here we are limiting the max 'size' of the expression to 5,
                -- otherwise this recursize call gets really expensive and running
                -- the tests will cause the cpu to spin.
-               Op (generate ((min 5 size) - 1) newGen1 genExpression) 
-                  (generate size gen genOperation) 
+               Op (generate ((min 5 size) - 1) newGen1 genExpression)
+                  (generate size gen genOperation)
                   (generate ((min 5 size) - 1) newGen2 genExpression)
       )
 
