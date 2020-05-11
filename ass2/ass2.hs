@@ -1,18 +1,5 @@
 {-# OPTIONS_GHC -Wall #-}
 
-{--
-This assignment contributes to 25% of the total marks for COMP3400.
-• The marks for this assignment out of 25 will be distributed as follows:
-– parseExpression function 7 marks
-– simplify function with 2 marks
-– genExpression function 3 marks
-– runTests function 2 marks
-– calculate function 2 marks
-– runCalculator function 3 marks
-– Type-class instances 2 marks
-– Overall design, including helpful program comments 4 marks
---}
-
 {- IMPORTS -}
 
 import Data.Char
@@ -20,16 +7,23 @@ import Data.Char
 import Data.Functor
 import Control.Applicative hiding ((<|>), some, many)
 
-{- TYPES, CLASSES AND FUNCTIONS -}
+import Test.Framework
+
+
+{- TYPES, CLASSES AND INSTANCES -}
+
 
 data List a = Nil | Cons a (List a)
   deriving (Eq, Show)
 
+
 data Pair a b = Pair a b
   deriving (Eq, Show)
 
+
 data NonEmptyList a = NonEmptyList a (List a)
   deriving (Eq, Show)
+
 
 data Operation =
    Add
@@ -37,6 +31,7 @@ data Operation =
    | Divide
    | Multiply
    deriving (Eq, Show)
+
 
 instance Ord Operation where
    compare Multiply Add = GT
@@ -49,34 +44,41 @@ instance Ord Operation where
    compare Subtract Divide = LT
    compare _ _ = EQ
 
+
 data Expression =
    Number Int
    | Op Expression Operation Expression
    | Parens Expression
    deriving (Eq, Show)
 
+
+instance Arbitrary Expression where
+   arbitrary = genExpression
+
+
 data ParseResult x =
    ParseError String
    | ParseSuccess x String
    deriving (Eq, Show)
+
+-- XXX !!!! these instances are copied from the prac, make sure they are correct and sufficiantly different
 
 instance Functor ParseResult where
    fmap f pr = case pr of
       ParseError err -> ParseError err
       ParseSuccess x str -> ParseSuccess (f x) str
 
+
 data Parser x = Parser (String -> ParseResult x)
 
--- XXX !!!! these instances are copied from the prac, make sure they are correct and sufficiantly different
 
 instance Functor Parser where
    fmap f (Parser p) = Parser (\s -> fmap f (p s))
 
+
 instance Applicative Parser where
    pure a = Parser (\s -> ParseSuccess a s)
 
-   -- Might need to ask for help with this.. don't really understand it.
-   -- Why would you run s on f first, rather than a on s
    (<*>) (Parser f) (Parser a) = Parser (
     \s -> case f s of
       ParseError err -> ParseError err
@@ -94,6 +96,9 @@ instance Monad Parser where
             ParseSuccess x s' -> let (Parser b) = (f x) in b s')
 
 
+{- PRIVATE FUNCTIONS -}
+
+
 runParser :: Parser a -> String -> ParseResult a
 runParser (Parser f) = f
 
@@ -108,9 +113,8 @@ foldLeft _ b Nil      = b
 foldLeft f b (h `Cons` t) = let b' = f b h in b' `seq` foldLeft f b' t
 
 
--- I changed this slightly to report correct error
--- | Succeeds if string is non-empty and next Char satisfies
---   the predicate
+-- Succeeds if string is non-empty and next Char satisfies
+-- the predicate
 satisfy :: (Char -> Bool) -> Parser Char
 satisfy pred = Parser
   (\s -> case s of
@@ -119,15 +123,22 @@ satisfy pred = Parser
     _ -> ParseError "Parse error: unexpected end of input")
 
 
--- | Parse a specific character
+-- Parse a specific character
 char :: Char -> Parser Char
 char c = satisfy (== c)
 
 
-endOfInput :: Parser ()
-endOfInput = Parser handleEndString
+-- Handles the trailing string after expression.
+-- If the trailing string contains a non-space
+-- character, we want to report that over the 
+-- whitespace, as it is more useful, but if there
+-- is no non-space characters then report whitespace
+-- as unexpected
+endStringParser :: Parser ()
+endStringParser = Parser handleEndString
 
 
+-- Helper function for endStringParser
 handleEndString :: String -> ParseResult ()
 handleEndString (' ':[]) = ParseError "Parse error: unexpected ' '"
 handleEndString (' ':s)  = handleEndString s
@@ -135,7 +146,7 @@ handleEndString (x:_)    = ParseError ("Parse error: unexpected '" ++ [x] ++ "'"
 handleEndString []       = ParseSuccess () ""
 
 
--- | If the first parser fails, try the second parser
+-- If the first parser fails, try the second parser
 (<|>) :: Parser a -> Parser a -> Parser a
 p1 <|> p2 = Parser (\s -> case runParser p1 s of
   success@(ParseSuccess _ _) -> success
@@ -143,15 +154,15 @@ p1 <|> p2 = Parser (\s -> case runParser p1 s of
   )
 
 
--- | Run the parser as many times as possible;
---   must succeed at least once;
---   collect non-empty list of results.
+-- Run the parser as many times as possible;
+-- must succeed at least once;
+-- collect non-empty list of results.
 some :: Parser a -> Parser (NonEmptyList a)
 some p = NonEmptyList <$> p <*> many p
 
 
--- | Run the parser as many times as possible;
---   collect list of results.
+-- Run the parser as many times as possible;
+-- collect list of results.
 many :: Parser a -> Parser (List a)
 many p = liftA2 Cons p (many p) <|> pure Nil
 
@@ -177,13 +188,16 @@ parseInt = f <$> some parseDigit
   f (NonEmptyList x xs) = foldLeft (\n -> (n * 10 +)) 0 (x `Cons` xs)
 
 
+-- Parse a signed int
 parseSignedInt :: Parser Int
 parseSignedInt =
   ((char '-' $> ((-1) *)) <*> parseInt) <|> parseInt
 
+{- API FUNCTIONS -}
 
 -- Reassociate the syntax tree according to order of precedence
--- i.e. 
+-- e.g. Op (Op (Number 3) Add (Number 5)) Multiply (Number 8)
+--   to Op (Number 3) Add (Op (Number 5) Multiply (Number 8))
 reassociate :: Expression -> Expression
 reassociate (Number n) = Number n
 reassociate (Parens exp) = Parens (reassociate exp)
@@ -219,11 +233,13 @@ parseExpression = reassociate <$>
    <|> parseExtra
       
 
+-- Parse either a Number or Expression in parenthesis
 parseExtra :: Parser Expression
 parseExtra = (Number <$> parseSignedInt)
    <|> (Parens <$> (char '(' *> parseExpression <* char ')'))
 
 
+-- Parser for an Operation
 -- Note: changeing 'some' to 'many' here would allow 0 or some 
 -- instances of whitespace, which I think is better, but the spec
 -- specifies one or more.
@@ -237,29 +253,18 @@ parseOperator = some (char ' ') *> Parser (\s -> case s of
    _          -> ParseError "Parse error: unexpected end of input") <* some (char ' ')
 
 
--- could make functions parseOperator, parseTerm, parseNumber, parseDigit, parseWhitespace
--- need to know how to split strings
--- would fuctor/applicative/monad be useful here?
--- removes very simple expressions
--- not sure if it can do more than this as that would involve calculating values of expressions
+-- Removes very simple expressions
 simplify :: Expression -> Expression
-simplify (Op expr Add (Number 0)) = simplify expr
-simplify (Op (Number 0) Add expr) = simplify expr
+simplify (Op expr Add (Number 0))      = simplify expr
+simplify (Op (Number 0) Add expr)      = simplify expr
 simplify (Op expr Subtract (Number 0)) = simplify expr
 simplify (Op (Number 0) Multiply _)    = Number 0
 simplify (Op _ Multiply (Number 0))    = Number 0
 simplify (Op expr Multiply (Number 1)) = simplify expr
 simplify (Op (Number 1) Multiply expr) = simplify expr
-simplify (Op (Number 0) Divide _)      = Number 0 -- Division by 0 is allowed to return anything so we are ok in this case
-simplify expr = expr
-
-
--- Import the test framework introduced during the lectures. Create a
--- genExpression :: Gen Expression to execute the property tests.
-
--- Runs the property tests for simplify
-runTests :: IO ()
-runTests = error "todo"
+-- Division by 0 is allowed to return anything so we are ok in this case
+simplify (Op (Number 0) Divide _)      = Number 0 
+simplify expr                          = expr
 
 
 -- Takes an expression and reduces it to an answer
@@ -283,12 +288,86 @@ runCalculator = do
    if line == "q" 
       then return ()
       else do
-         evaluate line
+         handleLine line
          runCalculator
 
+
 -- Handles a single line of input
-evaluate :: String -> IO ()
-evaluate line  = case parsed of
+handleLine :: String -> IO ()
+handleLine line  = case parsed of
    ParseError err -> putStrLn err
    ParseSuccess n _ -> putStrLn . show $ n
-   where parsed = calculate . simplify <$> (runParser (parseExpression <* endOfInput) line)
+   where parsed = calculate . simplify <$> (runParser (parseExpression <* endStringParser) line)
+
+
+{- TESTING -}
+
+
+-- Import the test framework introduced during the lectures. Create a
+-- genExpression :: Gen Expression to execute the property tests.
+genExpression :: Gen Expression
+genExpression = Gen (\size gen -> reassociate $
+      let (int, newGen) = next gen in
+         if (int `mod` 4 == 0) then
+            Parens (generate size newGen genExpression)
+         else 
+            if size == 1 then
+               Number . mod int $ 100
+            else let (newGen1, newGen2) = split newGen in
+               -- Here we are limiting the max 'size' of the expression to 5,
+               -- otherwise this recursize call gets really expensive and running
+               -- the tests will cause the cpu to spin.
+               Op (generate ((min 5 size) - 1) newGen1 genExpression) 
+                  (generate size gen genOperation) 
+                  (generate ((min 5 size) - 1) newGen2 genExpression)
+      )
+
+
+-- Generates an Operation
+-- I originally had int `mod` 4 but wsa getting an unsually large
+-- number of 0's for the results, so changed to 5.
+genOperation :: Gen Operation
+genOperation = Gen (\_ gen -> let (int, newGen) = next gen in
+      case int `mod` 5 of
+         0 -> Divide
+         1 -> Subtract
+         2 -> Multiply
+         _ -> Add) -- See Above
+
+
+testAddRightIdentity :: Expression -> Bool
+testAddRightIdentity expr = simplify (Op expr Add (Number 0)) == simplify expr
+
+testAddLeftIdentity :: Expression -> Bool
+testAddLeftIdentity expr = simplify (Op (Number 0) Add expr) == simplify expr
+
+testSubtractRightIdentity :: Expression -> Bool
+testSubtractRightIdentity expr = simplify (Op expr Subtract (Number 0)) == simplify expr
+
+testMultiplyLeftZero :: Expression -> Bool
+testMultiplyLeftZero expr = simplify (Op (Number 0) Multiply expr) == Number 0
+
+testMultiplyRightZero :: Expression -> Bool
+testMultiplyRightZero expr = simplify (Op expr Multiply (Number 0)) == Number 0
+
+testMultiplyRightIdentity :: Expression -> Bool
+testMultiplyRightIdentity expr = simplify (Op expr Multiply (Number 1)) == simplify expr
+
+testMultiplyLeftIdentity :: Expression -> Bool
+testMultiplyLeftIdentity expr = simplify (Op (Number 1) Multiply expr) == simplify expr
+
+testZeroNumerator :: Expression -> Bool
+testZeroNumerator expr = simplify (Op (Number 0) Divide expr) == Number 0
+
+
+-- Runs the property tests for simplify
+runTests :: IO ()
+runTests = do
+   test (testProperty "Add right identity" testAddRightIdentity)
+   test (testProperty "Add left identity" testAddLeftIdentity)
+   test (testProperty "Subtract right identity" testSubtractRightIdentity)
+   test (testProperty "Multiply left zero" testMultiplyLeftZero)
+   test (testProperty "Multiply right zero" testMultiplyRightZero)
+   test (testProperty "Multiply right identity" testMultiplyRightIdentity)
+   test (testProperty "Multiply left identity" testMultiplyLeftIdentity)
+   test (testProperty "Zero Numerator" testZeroNumerator)
