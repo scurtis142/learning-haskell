@@ -222,7 +222,7 @@ reassociate (Op expr1 op expr2) = Op (reassociate expr1) op (reassociate expr2)
 
 
 {--
-   Changed the grammer slightly to avoid infinite left recursion
+   Changed the grammar slightly to avoid infinite left recursion
    Still has same functionality
 
    Term        -> N [Operator N]
