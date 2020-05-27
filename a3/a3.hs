@@ -100,6 +100,8 @@ data Index = I0 | I1 | I2 | I3
 data Indices = Index Index
    deriving (Eq, Ord, Show)
 
+data Square = S1 | S2 | S3 | S4
+   deriving (Eq, Ord, Show)
 
 data Four a
    = Four a a a a
@@ -168,67 +170,51 @@ digToChar D3 = '3'
 digToChar D4 = '4'
 
 
--- Should we create an 'Index' parameter instead of Int ? Would add completeness to functions below
-blah :: (Int, Int) -> (Int, Int)
-blah (a, b) = (i, j) where
-   i = if (a `mod` 2 == 0) then
-         if (b `mod` 2 == 0) then 0 else 1
-       else 
-         if (b `mod` 2 == 0) then 2 else 3
-   j = if (a < 2) then
-         if (b < 2) then 0 else 1
-       else 
-         if (b < 2) then 2 else 3
-            
-dependant :: (Int, Int) -> (Int, Int) -> Bool
+dependant :: (Index, Index) -> (Index, Index) -> Bool
 dependant (i0, j0) (i1, j1) = if (i0 == i1) && (j0 == j1) then False
                               else if i0 == i1 || j0 == j1 then True
                               else sameSquare (i0, j0) (i1, j1)
 
-sameSquare :: (Int, Int) -> (Int, Int) -> Bool
+sameSquare :: (Index, Index) -> (Index, Index) -> Bool
 sameSquare a b = getSquare a == getSquare b
 
 
-getSquare :: (Int, Int) -> Int
+getSquare :: (Index, Index) -> Square
 getSquare (i, j) = 
-   if (i == 0 || i == 1) && (j == 0 || j == 1) then 1
-   else if (i == 2 || i == 3) && (j == 0 || j == 3) then 2
-   else if (i == 0 || i == 1) then 3
-   else 4
+   if (i == I0 || i == I1) && (j == I0 || j == I1) then S1
+   else if (i == I2 || i == I3) && (j == I0 || j == I3) then S2
+   else if (i == I0 || i == I1) then S3
+   else S4
 
 -- Loop through each hole in the board, getting the co-ordinates. 
 -- then loop throught each hole again, and get co-ordinates. If 
 -- the co-ordinates are compatible, add pair to list of constraints
 
-
--- (board, int) = runState (traverse cellToHole cellBoard) 0
--- (myboard, (i, j)) = runState (traverse bar board) (0,0)
-
-bar :: Hole -> State (Int, Int) ((Int, Int), Hole)
+bar :: Hole -> State (Index, Index) ((Index, Index), Hole)
 bar hole = State (\coOrds -> ((coOrds, hole), changeCoOrds coOrds))
 
 
-changeCoOrds :: (Int, Int) -> (Int, Int)
+changeCoOrds :: (Index, Index) -> (Index, Index)
 changeCoOrds coOrds = case coOrds of
-   (0,0) -> (1,0)
-   (1,0) -> (0,1)
-   (0,1) -> (1,1)
-   (1,1) -> (2,0)
-   (2,0) -> (3,0)
-   (3,0) -> (2,1)
-   (2,1) -> (3,1)
-   (3,1) -> (0,2)
-   (0,2) -> (1,2)
-   (1,2) -> (0,3)
-   (0,3) -> (1,3)
-   (1,3) -> (2,2)
-   (2,2) -> (3,2)
-   (3,2) -> (2,3)
-   (2,3) -> (3,3)
-   (_,_) -> (0,0)
+   (I0,I0) -> (I1,I0)
+   (I1,I0) -> (I0,I1)
+   (I0,I1) -> (I1,I1)
+   (I1,I1) -> (I2,I0)
+   (I2,I0) -> (I3,I0)
+   (I3,I0) -> (I2,I1)
+   (I2,I1) -> (I3,I1)
+   (I3,I1) -> (I0,I2)
+   (I0,I2) -> (I1,I2)
+   (I1,I2) -> (I0,I3)
+   (I0,I3) -> (I1,I3)
+   (I1,I3) -> (I2,I2)
+   (I2,I2) -> (I3,I2)
+   (I3,I2) -> (I2,I3)
+   (I2,I3) -> (I3,I3)
+   (I3,I3) -> (I0,I0)
 
 
-secondLoop :: Board ((Int, Int), Hole) -> ((Int, Int), Hole) -> [Constraint] -> [Constraint]
+secondLoop :: Board ((Index, Index), Hole) -> ((Index, Index), Hole) -> [Constraint] -> [Constraint]
 secondLoop board (coOrds, hole) constraints = 
    foldr function constraints board
    where function = \(coOrdsToCheck, holeToCheck) subConstraints ->
@@ -240,7 +226,7 @@ secondLoop board (coOrds, hole) constraints =
 -- List of all sudoku rules applied to a board
 generateConstraints :: Board Hole -> [Constraint]
 generateConstraints board = foldr (secondLoop indexedBoard) [] indexedBoard
-   where (indexedBoard, _) = runState (traverse bar board) (0, 0)
+   where (indexedBoard, _) = runState (traverse bar board) (I0, I0)
 
 
 -- Creates variables for unknown cells
@@ -289,6 +275,7 @@ solver = error "todo"
 
 -- Runs all of the above together
 sudoku :: Board Cell -> Logic (Board Digit)
+-- (board, int) = runState (traverse cellToHole cellBoard) 0
 sudoku = error "todo"
 
 
