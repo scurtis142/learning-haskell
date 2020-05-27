@@ -3,6 +3,8 @@
 {-# OPTIONS_GHC -Wall #-}
 
 import Data.Semigroup (Semigroup(..))  -- <>
+import Prelude hiding (tail)
+import Data.Char --chr
 
 -- This has the same type as the List structure from prac 9
 data Logic a
@@ -93,15 +95,13 @@ data Cell
    deriving (Eq, Ord, Show)
 
 
--- Maybe delete these if they dont get used
 data Index = I0 | I1 | I2 | I3
    deriving (Eq, Ord, Show)
 
-data Indices = Index Index
-   deriving (Eq, Ord, Show)
 
 data Square = S1 | S2 | S3 | S4
    deriving (Eq, Ord, Show)
+
 
 data Four a
    = Four a a a a
@@ -111,12 +111,6 @@ data Four a
 instance Functor Four where
    fmap f (Four a0 a1 a2 a3) = (Four (f a0) (f a1) (f a2) (f a3))
 
--- For testing the foldable Four instance
-testfold :: Digit -> Int -> Int
-testfold D1 x = x+1
-testfold D2 x = x+2
-testfold D3 x = x+3
-testfold D4 x = x+4
 
 instance Foldable Four where
    foldr f b (Four a0 a1 a2 a3) = (f a0) . (f a1) . (f a2) $ f a3 b
@@ -142,14 +136,15 @@ instance Functor Board where
 instance Foldable Board where
    foldr f b (Board (Four a0 a1 a2 a3)) = foldr f (foldr f (foldr f (foldr f b a3) a2) a1) a0
 
+
 instance Traversable Board where
-   --traverse :: Applicative f => (a -> f b) -> t a -> f (t b)
     traverse f (Board (Four a b c d)) =
       let a' = traverse f a
           b' = traverse f b
           c' = traverse f c
           d' = traverse f d in
            pure Board <*> (pure Four <*> a' <*> b' <*> c' <*> d')
+
 
 data Hole
    = Concrete Digit
@@ -161,28 +156,36 @@ data Constraint
    = NotEqual Hole Hole
    deriving (Eq, Ord, Show)
 
+indexToNum :: Index -> Int
+indexToNum I0 = 0
+indexToNum I1 = 1
+indexToNum I2 = 2
+indexToNum I3 = 3
 
--- digit to char
-digToChar :: Digit -> Char
-digToChar D1 = '1'
-digToChar D2 = '2'
-digToChar D3 = '3'
-digToChar D4 = '4'
-
+compareIndices :: (Index, Index) -> (Index, Index) -> Ordering
+compareIndices x@(x1,x2) y@(y1,y2) = case squareComparison of
+   EQ -> case compareIndexSum of
+            EQ -> y1 `compare` x1
+            _  -> compareIndexSum
+   _  -> squareComparison
+   where squareComparison = (getSquare x) `compare` (getSquare y)
+         compareIndexSum  = ((indexToNum x1) + (indexToNum x2)) `compare` ((indexToNum y1) + (indexToNum y2))
 
 dependant :: (Index, Index) -> (Index, Index) -> Bool
-dependant (i0, j0) (i1, j1) = if (i0 == i1) && (j0 == j1) then False
+dependant x@(i0, j0) y@(i1, j1) = if x < y then False
+                              else if (i0 == i1) && (j0 == j1) then False
                               else if i0 == i1 || j0 == j1 then True
-                              else sameSquare (i0, j0) (i1, j1)
+                              else sameSquare x y
 
 sameSquare :: (Index, Index) -> (Index, Index) -> Bool
 sameSquare a b = getSquare a == getSquare b
 
 
+-- Need to throroughly test this
 getSquare :: (Index, Index) -> Square
 getSquare (i, j) = 
    if (i == I0 || i == I1) && (j == I0 || j == I1) then S1
-   else if (i == I2 || i == I3) && (j == I0 || j == I3) then S2
+   else if (i == I2 || i == I3) && (j == I0 || j == I1) then S2
    else if (i == I0 || i == I1) then S3
    else S4
 
@@ -194,6 +197,7 @@ bar :: Hole -> State (Index, Index) ((Index, Index), Hole)
 bar hole = State (\coOrds -> ((coOrds, hole), changeCoOrds coOrds))
 
 
+-- If we can somehow have these as an ordering then we can remove the duplicates
 changeCoOrds :: (Index, Index) -> (Index, Index)
 changeCoOrds coOrds = case coOrds of
    (I0,I0) -> (I1,I0)
@@ -229,6 +233,11 @@ generateConstraints board = foldr (secondLoop indexedBoard) [] indexedBoard
    where (indexedBoard, _) = runState (traverse bar board) (I0, I0)
 
 
+assertConstraints :: [Constraint] -> Bool
+assertConstraints [] = True
+assertConstraints ((NotEqual h1 h2):tail) = (h1 /= h2) && assertConstraints tail
+
+
 -- Creates variables for unknown cells
 -- State is meant to keep track of what number we are up to to give the variable a unique identifier
 -- Increment the "state" (int) for variable. Keep same for Concrete as its not used.
@@ -237,17 +246,11 @@ cellToHole Unknown = State (\int -> (Variable int, int + 1))
 cellToHole (Known digit) = State (\int -> (Concrete digit, int))
 
 
--- Im not sure why this works, but will create something of type
--- Board Hole from Board Cell
---(board, int) = runState (traverse cellToHole cellBoard) 0
-
-
--- Could have this as a lambda function inside substiture if nothing else uses it.
 fillHole :: Int -> Digit -> Hole -> Hole
-fillHole var1 digit hole = case hole of 
+fillHole var1 digit hole = case hole of
    Concrete _ -> hole
    Variable var2 -> if var1 == var2 then
-                        Concrete digit    
+                        Concrete digit
                     else
                         hole
 
@@ -279,6 +282,17 @@ sudoku :: Board Cell -> Logic (Board Digit)
 sudoku = error "todo"
 
 
+-- digit to char
+digToChar :: Digit -> Char
+digToChar D1 = '1'
+digToChar D2 = '2'
+digToChar D3 = '3'
+digToChar D4 = '4'
+
+holeToChar :: Hole -> Char
+holeToChar (Concrete digit) = digToChar digit
+holeToChar (Variable int) = chr (ord 'a' + int)
+
 prettyFour :: (a -> Char) -> Four a -> Four a -> String
 prettyFour s (Four a b c d) (Four e f g h) =
    unlines
@@ -301,3 +315,15 @@ cellBoard = Board (Four (Four Unknown Unknown (Known D1) Unknown)
                    (Four Unknown Unknown (Known D2) Unknown)
                    (Four Unknown Unknown (Known D3) Unknown)
                    (Four Unknown (Known D2) (Known D4) Unknown))
+
+cellBoard2 :: Board Cell
+cellBoard2 = Board (Four (Four Unknown Unknown (Known D1) Unknown)
+                   (Four Unknown Unknown (Known D2) Unknown)
+                   (Four Unknown Unknown (Known D3) (Known D2))
+                   (Four Unknown Unknown (Known D4) Unknown))
+
+
+main :: IO ()
+main = let (board, _) = runState (traverse cellToHole cellBoard) 0 in do
+   putStr $ prettyBoard holeToChar board
+   putStrLn $ show . assertConstraints $ generateConstraints board
