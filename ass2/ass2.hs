@@ -236,6 +236,15 @@ reassociate (Op expr1 op expr2) = Op (reassociate expr1) op (reassociate expr2)
 --}
 
 
+{-- 
+  Some associativity errors.
+  >>> 2 + 3 * 4 - 5 * 6 + 7
+  97
+  >>> 2 + 3 * 4 - 5 / 6 + 7
+  9
+  >>> (2 + 3) * 4 - 5 * 6 + 7
+  97
+--}
 -- Converts a string into an Expression, or Error
 parseExpression :: Parser Expression
 parseExpression = (reassociate . takePair leftAssociate) <$> liftA2 Pair parseN (many (liftA2 Pair parseOperator parseN))
@@ -320,6 +329,7 @@ handleLine line  = case parsed of
 
 {- TESTING -}
 
+-- Feedback: "better to use Gen Applicative interface and 'frequence' and 'sized' combinators"
 
 -- Import the test framework introduced during the lectures. Create a
 -- genExpression :: Gen Expression to execute the property tests.
