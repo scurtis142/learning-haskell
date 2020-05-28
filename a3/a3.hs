@@ -172,7 +172,7 @@ compareIndices x@(x1,x2) y@(y1,y2) = case squareComparison of
          compareIndexSum  = ((indexToNum x1) + (indexToNum x2)) `compare` ((indexToNum y1) + (indexToNum y2))
 
 dependant :: (Index, Index) -> (Index, Index) -> Bool
-dependant x@(i0, j0) y@(i1, j1) = if x < y then False
+dependant x@(i0, j0) y@(i1, j1) = if x < y then False--this should not compile, why are we allowed to use x<y rather than the compare indices function?
                               else if (i0 == i1) && (j0 == j1) then False
                               else if i0 == i1 || j0 == j1 then True
                               else sameSquare x y
@@ -189,10 +189,8 @@ getSquare (i, j) =
    else if (i == I0 || i == I1) then S3
    else S4
 
--- Loop through each hole in the board, getting the co-ordinates. 
--- then loop throught each hole again, and get co-ordinates. If 
--- the co-ordinates are compatible, add pair to list of constraints
 
+-- Change this function name
 bar :: Hole -> State (Index, Index) ((Index, Index), Hole)
 bar hole = State (\coOrds -> ((coOrds, hole), changeCoOrds coOrds))
 
@@ -269,17 +267,66 @@ instantiate :: Int -> Digit -> Constraint -> Constraint
 instantiate int digit (NotEqual hole1 hole2) =
    let fh = fillHole int digit in NotEqual (fh hole1) (fh hole2)
 
+-- we could just get rid of this intermidiate function and call fmap directly
+updateConstraints :: Int -> Digit -> [Constraint] -> [Constraint]
+updateConstraints int digit constraints = fmap (instantiate int digit) constraints
+
+
+digits :: Logic Digit
+digits = cons D1 (cons D2 (cons D3 (cons D4 nil)))
+
+--can use this function with traverse to get soemthing of type Board Hole -> Maybe Board Digit
+getDigit :: Hole -> Maybe Digit
+getDigit (Concrete digit) = Just digit
+getDigit _ = Nothing
+
+-- Can use this with fold to get the next int
+thing :: Hole -> (Maybe Int) -> (Maybe Int)
+thing _ (Just int) = Just int
+thing (Variable int) _ = Just int
+thing (Concrete _) _ = Nothing
+
+
+holeToEitherIntDigit :: Hole -> Either Int Digit
+holeToEitherIntDigit (Concrete digit) = Right digit
+holeToEitherIntDigit (Variable int) = Left int
+
 
 -- If no variables exist, emits the board
 -- Otherwise solves the board's next variable
+-- Return value is all the possible board digits that could exist 
+-- given the inputs. e.g. Nil for an impossible board, [b1, b2, ... , bn]
+-- for a board with n possible solutions.
+-- uses the functions substitute and instantiate to recursively solve variables and produces solutions.
+
+-- get next maybe int
+   -- if nothing, convert and add board. Return
+-- else
+-- start with D1
+-- change constants
+-- assert constants
+-- if asserted
+   -- call instanciate and substitue on board and constraints and call recursivly
+-- repeat again for D2, D3, D4
+
 solver :: [Constraint] -> Board Hole -> Logic (Board Digit)
-solver = error "todo"
+solver constraints board = 
+   let nextOrfinish = traverse holeToEitherIntDigit board in
+      case nextOrfinish of
+         (Right digitBoard) -> cons digitBoard nil
+         (Left nextVar) -> digits >>= \i -> 
+            let newConstraints = updateConstraints nextVar i constraints
+                newBoard = substitute nextVar i board in
+                  case assertConstraints newConstraints of
+                     True -> solver newConstraints newBoard     
+                     False -> nil
 
 
 -- Runs all of the above together
 sudoku :: Board Cell -> Logic (Board Digit)
--- (board, int) = runState (traverse cellToHole cellBoard) 0
-sudoku = error "todo"
+sudoku cellBoard = let (holeBoard, _) = runState (traverse cellToHole cellBoard) 0
+                       constraints = generateConstraints holeBoard in
+                       solver constraints holeBoard
 
 
 -- digit to char
@@ -310,20 +357,29 @@ prettyBoard s (Board (Four a b c d)) =
    prettyFour s a b ++ prettyFour s c d
 
 
-cellBoard :: Board Cell
-cellBoard = Board (Four (Four Unknown Unknown (Known D1) Unknown)
+final :: Board Digit -> String -> String
+final board string = unlines [string, prettyBoard digToChar board]
+
+
+testBoard :: Board Cell
+testBoard = Board (Four (Four Unknown Unknown (Known D1) Unknown)
                    (Four Unknown Unknown (Known D2) Unknown)
                    (Four Unknown Unknown (Known D3) Unknown)
                    (Four Unknown (Known D2) (Known D4) Unknown))
+   
+   
+testBoard2 :: Board Cell
+testBoard2 = Board (Four (Four Unknown (Known D1) (Known D1) (Known D1))
+                   (Four (Known D1) (Known D1) (Known D2) (Known D1))
+                   (Four (Known D1) (Known D1) (Known D3) (Known D1))
+                   (Four (Known D1) (Known D2) (Known D4) (Known D1)))
 
-cellBoard2 :: Board Cell
-cellBoard2 = Board (Four (Four Unknown Unknown (Known D1) Unknown)
-                   (Four Unknown Unknown (Known D2) Unknown)
-                   (Four Unknown Unknown (Known D3) (Known D2))
-                   (Four Unknown Unknown (Known D4) Unknown))
 
+testBoard3 :: Board Cell
+testBoard3 = Board (Four (Four (Known D1) (Known D2) (Known D3) (Known D4))
+                   (Four       (Known D3) (Known D4) (Known D1) (Known D2))
+                   (Four       (Known D2) (Known D1) Unknown (Known D3))
+                   (Four       (Known D4) (Known D3) (Known D2) (Known D1)))
 
 main :: IO ()
-main = let (board, _) = runState (traverse cellToHole cellBoard) 0 in do
-   putStr $ prettyBoard holeToChar board
-   putStrLn $ show . assertConstraints $ generateConstraints board
+main = putStr $ foldRight final "" (sudoku testBoard)
