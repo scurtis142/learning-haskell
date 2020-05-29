@@ -2,9 +2,14 @@
 {-# LANGUAGE InstanceSigs #-}
 {-# OPTIONS_GHC -Wall #-}
 
+
+{- IMPORTS -}
+
 import Data.Semigroup (Semigroup(..))  -- <>
 import Prelude hiding (tail)
-import Data.Char --chr
+
+
+{- TYPES, CLASSES AND INSTANCES -}
 
 -- This has the same type as the List structure from prac 9
 data Logic a
@@ -17,25 +22,29 @@ data Logic a
 nil :: Logic a
 nil = Logic $ \_c n -> n
 
+
 cons :: a -> Logic a -> Logic a
 cons h (Logic t) = Logic $ \c n -> c h (t c n)
 
+
 -- Get foldRight for free
 -- Might not be needed.
-foldRight :: (a -> b -> b) -> b -> Logic a -> b
-foldRight f z (Logic l) = l f z
+instance Foldable Logic where
+   foldr f z (Logic l) = l f z
 
 
 -- These instances are also exactly the same
 -- if i can redo functor logic we can get rid of this
 instance Semigroup (Logic a) where
   (<>) :: Logic a -> Logic a -> Logic a
-  l1 <> l2 = foldRight cons l2 l1
+  l1 <> l2 = foldr cons l2 l1
 
--- see if prac is posted so we can see how to do this without foldRight
+
+-- see if prac is posted so we can see how to do this without foldr
 instance Functor Logic where
    fmap :: (a -> b) -> (Logic a) -> (Logic b)
-   fmap f = foldRight (cons . f) nil
+   fmap f = foldr (cons . f) nil
+
 
 instance Applicative Logic where
    pure :: a -> Logic a
@@ -54,13 +63,15 @@ instance Monad Logic where
 data State s a =
    State (s -> (a, s))
 
+
 runState :: State s a -> s -> (a, s)
 runState (State f) = f
 
+
 instance Functor (State s) where
    fmap f (State sf) = State (\s -> 
-         let (answer, newState) = sf s in (f answer, newState)
-         )
+         let (answer, newState) = sf s in (f answer, newState))
+
 
 instance Applicative (State s) where
    pure a = State (\s -> (a, s))
@@ -68,8 +79,8 @@ instance Applicative (State s) where
    (<*>) (State sff) (State sfa) = State (\s -> 
          let (answer, newState) = sff s 
              (a2, ns2)          = sfa newState in
-             (answer a2, ns2)            
-         )
+             (answer a2, ns2)            )
+
 
 instance Monad (State s) where
    return a = State (\s -> (a, s))
@@ -78,8 +89,8 @@ instance Monad (State s) where
          let (a', s') = a s
              State r = f a' in
                --f a' is of type State s b, therefore, r is of type s -> (b, s)
-               r s'  
-         )
+               r s'  )
+
 
 data Digit
    = D1
@@ -117,11 +128,8 @@ instance Foldable Four where
 
 
 instance Traversable Four where
-   traverse f (Four a b c d) = pure Four <*> (f a) <*> (f b) <*> (f c) <*> (f d)
-   --equivalent:
-   -- traverse f (Four a b c d) = Four <$> (f a) <*> (f b) <*> (f c) <*> (f d)
-   -- sequenceA (Four a b c d) = pure Four <*> a <*> b <*> c <*> d
-   -- sequenceA (Four a b c d) = Four <$> a <*> b <*> c <*> d
+   traverse f (Four a b c d) =
+      pure Four <*> (f a) <*> (f b) <*> (f c) <*> (f d)
 
 
 data Board a
@@ -130,11 +138,13 @@ data Board a
 
 
 instance Functor Board where
-   fmap f (Board (Four a b c d)) = Board (Four (fmap f a) (fmap f b) (fmap f c) (fmap f d))
+   fmap f (Board (Four a b c d)) =
+      Board (Four (fmap f a) (fmap f b) (fmap f c) (fmap f d))
 
 
 instance Foldable Board where
-   foldr f b (Board (Four a0 a1 a2 a3)) = foldr f (foldr f (foldr f (foldr f b a3) a2) a1) a0
+   foldr f b (Board (Four a0 a1 a2 a3)) =
+      foldr f (foldr f (foldr f (foldr f b a3) a2) a1) a0
 
 
 instance Traversable Board where
@@ -156,43 +166,34 @@ data Constraint
    = NotEqual Hole Hole
    deriving (Eq, Ord, Show)
 
-indexToNum :: Index -> Int
-indexToNum I0 = 0
-indexToNum I1 = 1
-indexToNum I2 = 2
-indexToNum I3 = 3
 
-compareIndices :: (Index, Index) -> (Index, Index) -> Ordering
-compareIndices x@(x1,x2) y@(y1,y2) = case squareComparison of
-   EQ -> case compareIndexSum of
-            EQ -> y1 `compare` x1
-            _  -> compareIndexSum
-   _  -> squareComparison
-   where squareComparison = (getSquare x) `compare` (getSquare y)
-         compareIndexSum  = ((indexToNum x1) + (indexToNum x2)) `compare` ((indexToNum y1) + (indexToNum y2))
+{- FUNCTIONS -}
 
+-- Returns True if 2 sets of indices are dependant. i.e. in the same row
+-- column or sub-square. Will return false if equal, as we don't want a 
+-- constraint from itself to itself. Also will only return True for one
+-- of 'dependant a b' and 'dependant b a'. To not produce duplicate constraints.
 dependant :: (Index, Index) -> (Index, Index) -> Bool
-dependant x@(i0, j0) y@(i1, j1) = if x < y then False--this should not compile, why are we allowed to use x<y rather than the compare indices function?
-                              else if (i0 == i1) && (j0 == j1) then False
-                              else if i0 == i1 || j0 == j1 then True
-                              else sameSquare x y
+-- It doesn't actually matter how the < function is defined on indices. 
+-- As long as (a < b) != (b < a).
+dependant a@(x0, y0) b@(x1, y1) = if a < b then False
+   else if x0 == x1 && y0 == y1 then False
+   else if x0 == x1 || y0 == y1 then True
+   else getSquare a == getSquare b
 
-sameSquare :: (Index, Index) -> (Index, Index) -> Bool
-sameSquare a b = getSquare a == getSquare b
 
-
--- Need to throroughly test this
+-- Returns the sub-square in which this set of indices resides
 getSquare :: (Index, Index) -> Square
-getSquare (i, j) = 
-   if (i == I0 || i == I1) && (j == I0 || j == I1) then S1
-   else if (i == I2 || i == I3) && (j == I0 || j == I1) then S2
-   else if (i == I0 || i == I1) then S3
+getSquare (x, y) = 
+   if      (x == I0 || x == I1) && (y == I0 || y == I1) then S1
+   else if (x == I2 || x == I3) && (y == I0 || y == I1) then S2
+   else if (x == I0 || x == I1) then S3
    else S4
 
 
--- Change this function name
-bar :: Hole -> State (Index, Index) ((Index, Index), Hole)
-bar hole = State (\coOrds -> ((coOrds, hole), changeCoOrds coOrds))
+-- Creates indices for a Board Hole
+indexBoard :: Hole -> State (Index, Index) ((Index, Index), Hole)
+indexBoard hole = State (\coOrds -> ((coOrds, hole), changeCoOrds coOrds))
 
 
 -- If we can somehow have these as an ordering then we can remove the duplicates
@@ -216,7 +217,8 @@ changeCoOrds coOrds = case coOrds of
    (I3,I3) -> (I0,I0)
 
 
-secondLoop :: Board ((Index, Index), Hole) -> ((Index, Index), Hole) -> [Constraint] -> [Constraint]
+secondLoop :: Board ((Index, Index), Hole) -> ((Index, Index), Hole) 
+   -> [Constraint] -> [Constraint]
 secondLoop board (coOrds, hole) constraints = 
    foldr function constraints board
    where function = \(coOrdsToCheck, holeToCheck) subConstraints ->
@@ -228,32 +230,32 @@ secondLoop board (coOrds, hole) constraints =
 -- List of all sudoku rules applied to a board
 generateConstraints :: Board Hole -> [Constraint]
 generateConstraints board = foldr (secondLoop indexedBoard) [] indexedBoard
-   where (indexedBoard, _) = runState (traverse bar board) (I0, I0)
+   where (indexedBoard, _) = runState (traverse indexBoard board) (I0, I0)
 
 
+-- Returns True if all the constraints hold. False otherwise
 assertConstraints :: [Constraint] -> Bool
 assertConstraints [] = True
 assertConstraints ((NotEqual h1 h2):tail) = (h1 /= h2) && assertConstraints tail
 
 
 -- Creates variables for unknown cells
--- State is meant to keep track of what number we are up to to give the variable a unique identifier
--- Increment the "state" (int) for variable. Keep same for Concrete as its not used.
+-- Keep track of what number we are up to to give the variable a unique identifier
 cellToHole :: Cell -> State Int Hole
 cellToHole Unknown = State (\int -> (Variable int, int + 1))
 cellToHole (Known digit) = State (\int -> (Concrete digit, int))
 
 
+-- If the given int matches th varibale in the given hole, update
+-- the hole with the given digit.
 fillHole :: Int -> Digit -> Hole -> Hole
-fillHole var1 digit hole = case hole of
-   Concrete _ -> hole
-   Variable var2 -> if var1 == var2 then
-                        Concrete digit
-                    else
-                        hole
+fillHole _ _ hole@(Concrete _) = hole
+fillHole var1 digit hole@(Variable var2) = if var1 == var2 
+   then Concrete digit
+   else hole
+
 
 -- Replaces a variable in a board
--- Find the hole with the given int variable, then replaces that hole with a concrete digit
 -- If the variable is not found then just return the board unchanged
 -- More than 1 hole with a given variable can be changed
 substitute :: Int -> Digit -> Board Hole -> Board Hole
@@ -261,35 +263,20 @@ substitute var digit board = fmap (fillHole var digit) board
 
 
 -- Replaces a variable in a constraint
--- Not sure if this is the correct implementation. 
--- Just calling fillhole for each hole in the constraint.
 instantiate :: Int -> Digit -> Constraint -> Constraint
 instantiate int digit (NotEqual hole1 hole2) =
    let fh = fillHole int digit in NotEqual (fh hole1) (fh hole2)
 
--- we could just get rid of this intermidiate function and call fmap directly
-updateConstraints :: Int -> Digit -> [Constraint] -> [Constraint]
-updateConstraints int digit constraints = fmap (instantiate int digit) constraints
 
-
-digits :: Logic Digit
-digits = cons D1 (cons D2 (cons D3 (cons D4 nil)))
-
---can use this function with traverse to get soemthing of type Board Hole -> Maybe Board Digit
-getDigit :: Hole -> Maybe Digit
-getDigit (Concrete digit) = Just digit
-getDigit _ = Nothing
-
--- Can use this with fold to get the next int
-thing :: Hole -> (Maybe Int) -> (Maybe Int)
-thing _ (Just int) = Just int
-thing (Variable int) _ = Just int
-thing (Concrete _) _ = Nothing
-
-
+-- We could possible remove this function as either is isomorphic to hole
 holeToEitherIntDigit :: Hole -> Either Int Digit
 holeToEitherIntDigit (Concrete digit) = Right digit
 holeToEitherIntDigit (Variable int) = Left int
+
+
+-- Used in solver to iterate over the digits
+digits :: Logic Digit
+digits = cons D1 (cons D2 (cons D3 (cons D4 nil)))
 
 
 -- If no variables exist, emits the board
@@ -297,26 +284,14 @@ holeToEitherIntDigit (Variable int) = Left int
 -- Return value is all the possible board digits that could exist 
 -- given the inputs. e.g. Nil for an impossible board, [b1, b2, ... , bn]
 -- for a board with n possible solutions.
--- uses the functions substitute and instantiate to recursively solve variables and produces solutions.
-
--- get next maybe int
-   -- if nothing, convert and add board. Return
--- else
--- start with D1
--- change constants
--- assert constants
--- if asserted
-   -- call instanciate and substitue on board and constraints and call recursivly
--- repeat again for D2, D3, D4
-
 solver :: [Constraint] -> Board Hole -> Logic (Board Digit)
 solver constraints board = 
    let nextOrfinish = traverse holeToEitherIntDigit board in
       case nextOrfinish of
          (Right digitBoard) -> cons digitBoard nil
-         (Left nextVar) -> digits >>= \i -> 
-            let newConstraints = updateConstraints nextVar i constraints
-                newBoard = substitute nextVar i board in
+         (Left nextVar) -> digits >>= \nextDigit -> 
+            let newConstraints = fmap (instantiate nextVar nextDigit) constraints
+                newBoard = substitute nextVar nextDigit board in
                   case assertConstraints newConstraints of
                      True -> solver newConstraints newBoard     
                      False -> nil
@@ -329,6 +304,8 @@ sudoku cellBoard = let (holeBoard, _) = runState (traverse cellToHole cellBoard)
                        solver constraints holeBoard
 
 
+{- TESTING -}
+
 -- digit to char
 digToChar :: Digit -> Char
 digToChar D1 = '1'
@@ -336,9 +313,6 @@ digToChar D2 = '2'
 digToChar D3 = '3'
 digToChar D4 = '4'
 
-holeToChar :: Hole -> Char
-holeToChar (Concrete digit) = digToChar digit
-holeToChar (Variable int) = chr (ord 'a' + int)
 
 prettyFour :: (a -> Char) -> Four a -> Four a -> String
 prettyFour s (Four a b c d) (Four e f g h) =
@@ -357,6 +331,7 @@ prettyBoard s (Board (Four a b c d)) =
    prettyFour s a b ++ prettyFour s c d
 
 
+-- Need to change this name
 final :: Board Digit -> String -> String
 final board string = unlines [string, prettyBoard digToChar board]
 
@@ -381,5 +356,13 @@ testBoard3 = Board (Four (Four (Known D1) (Known D2) (Known D3) (Known D4))
                    (Four       (Known D2) (Known D1) Unknown (Known D3))
                    (Four       (Known D4) (Known D3) (Known D2) (Known D1)))
 
+
+testBoard4 :: Board Cell
+testBoard4 = Board (Four (Four Unknown Unknown Unknown Unknown)
+                   (Four       Unknown Unknown Unknown Unknown)
+                   (Four       Unknown Unknown Unknown Unknown)
+                   (Four       Unknown Unknown Unknown Unknown))
+
+
 main :: IO ()
-main = putStr $ foldRight final "" (sudoku testBoard)
+main = putStr $ foldr final "" (sudoku testBoard)
