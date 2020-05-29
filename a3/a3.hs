@@ -5,43 +5,29 @@
 
 {- IMPORTS -}
 
-import Data.Semigroup (Semigroup(..))  -- <>
-import Prelude hiding (tail)
+import Prelude hiding (head, tail)
 
 
 {- TYPES, CLASSES AND INSTANCES -}
 
--- This has the same type as the List structure from prac 9
 data Logic a
    = Logic (forall r. (a -> r -> r) -> r -> r)
 
 
--- With the rankNType notation you have to generate the constructors
--- Need to change these up slightly as they are exactly the same as 
--- in the prac minus the name List -> Logic difference
-
 -- Constructor for Logic type
 nil :: Logic a
-nil = Logic $ \_c n -> n
+nil = Logic $ \_ empty -> empty
 
 
--- Constructor for Logic type
+-- -- Constructor for Logic type
 cons :: a -> Logic a -> Logic a
-cons h (Logic t) = Logic $ \c n -> c h (t c n)
+cons head (Logic tail) = Logic $ \con empty -> con head (tail con empty)
 
 
 instance Foldable Logic where
-   foldr f z (Logic l) = l f z
+   foldr f acc (Logic l) = l f acc
 
 
--- These instances are also exactly the same
--- if i can redo functor logic we can get rid of this
-instance Semigroup (Logic a) where
-  (<>) :: Logic a -> Logic a -> Logic a
-  l1 <> l2 = foldr cons l2 l1
-
-
--- see if prac is posted so we can see how to do this without foldr
 instance Functor Logic where
    fmap :: (a -> b) -> (Logic a) -> (Logic b)
    fmap f = foldr (cons . f) nil
@@ -52,30 +38,29 @@ instance Applicative Logic where
    pure a = cons a nil
 
    (<*>) :: Logic (a -> b) -> Logic a -> Logic b
-   Logic fs <*> as = fs (\f r -> fmap f as <> r) nil--see if we can do this without <>
+   Logic fs <*> as = fs (\f x -> foldr cons (fmap f as) x) nil
 
 
 instance Monad Logic where
   (>>=) :: Logic a -> (a -> Logic b) -> Logic b
-  Logic as >>= f = as (\a r -> f a <> r) nil
+  Logic as >>= f = as (\a x -> foldr cons (f a) x) nil
 
 
--- These ones should be good
 data State s a =
    State (s -> (a, s))
 
 
 instance Functor (State s) where
-   fmap f (State sf) = State (\s -> 
+   fmap f (State sf) = State (\s ->
          let (answer, newState) = sf s in (f answer, newState))
 
 
 instance Applicative (State s) where
    pure a = State (\s -> (a, s))
 
-   (<*>) (State sff) (State sfa) = State (\s -> 
-         let (answer, newState) = sff s 
-             (a2, ns2)          = sfa newState in
+   (<*>) (State f) (State a) = State (\s ->
+         let (answer, newState) = f s
+             (a2, ns2)          = a newState in
              (answer a2, ns2)            )
 
 
@@ -85,7 +70,8 @@ instance Monad (State s) where
    (>>=) (State a) f = State (\s ->
          let (a', s') = a s
              State r = f a' in
-               --f a' is of type State s b, therefore, r is of type s -> (b, s)
+               --f a' is of type State s b, therefore,
+               --r is of type s -> (b, s)
                r s'  )
 
 
@@ -172,21 +158,21 @@ runState (State f) = f
 
 
 -- Returns True if 2 sets of indices are dependant. i.e. in the same row
--- column or sub-square. Will return false if equal, as we don't want a 
+-- column or sub-square. Will return false if equal, as we don't want a
 -- constraint from itself to itself. Also will only return True for one
 -- of 'dependant a b' and 'dependant b a' as to not duplicate constraints.
 dependant :: (Index, Index) -> (Index, Index) -> Bool
--- It doesn't actually matter how the < function is defined on indices. 
+-- It doesn't actually matter how the < function is defined on indices.
 -- As long as (a < b) != (b < a).
 dependant a@(x0, y0) b@(x1, y1) = if a < b then False
-   else if x0 == x1 && y0 == y1 then False   -- not dependant on itself 
+   else if x0 == x1 && y0 == y1 then False   -- not dependant on itself
    else if x0 == x1 || y0 == y1 then True    -- Same row or column
    else getSquare a == getSquare b           -- Same sub-square
 
 
 -- Returns the sub-square in which this set of indices resides
 getSquare :: (Index, Index) -> Square
-getSquare (x, y) = 
+getSquare (x, y) =
    if      (x == I0 || x == I1) && (y == I0 || y == I1) then S1
    else if (x == I2 || x == I3) && (y == I0 || y == I1) then S2
    else if (x == I0 || x == I1) then S3
@@ -218,15 +204,15 @@ indexBoard hole = State (\coOrds -> ((coOrds, hole), case coOrds of
 
 
 -- Appends all dependancies for a single hole to the list of constraints
-appendConstraints :: Board ((Index, Index), Hole) -> ((Index, Index), Hole) 
+appendConstraints :: Board ((Index, Index), Hole) -> ((Index, Index), Hole)
    -> [Constraint] -> [Constraint]
-appendConstraints board (coOrds, hole) constraints = 
+appendConstraints board (coOrds, hole) constraints =
    foldr appendIfDependant constraints board
    where appendIfDependant = \(coOrdsToCheck, holeToCheck) subConstraints ->
-                        if dependant coOrds coOrdsToCheck then 
+                        if dependant coOrds coOrdsToCheck then
                            (NotEqual hole holeToCheck):subConstraints
                         else subConstraints
-   
+
 
 -- List of all sudoku rules applied to a board
 generateConstraints :: Board Hole -> [Constraint]
@@ -251,7 +237,7 @@ cellToHole (Known digit) = State (\int -> (Concrete digit, int))
 -- the hole with the given digit.
 fillHole :: Int -> Digit -> Hole -> Hole
 fillHole _ _ hole@(Concrete _) = hole
-fillHole var1 digit hole@(Variable var2) = if var1 == var2 
+fillHole var1 digit hole@(Variable var2) = if var1 == var2
    then Concrete digit
    else hole
 
@@ -282,21 +268,21 @@ digits = cons D1 (cons D2 (cons D3 (cons D4 nil)))
 
 -- If no variables exist, emits the board
 -- Otherwise solves the board's next variable
--- Return value is all the possible board digits that could exist 
+-- Return value is all the possible board digits that could exist
 -- given the inputs. e.g. Nil for an impossible board, [b1, b2, ... , bn]
 -- for a board with n possible solutions.
 solver :: [Constraint] -> Board Hole -> Logic (Board Digit)
-solver constraints board = 
+solver constraints board =
    let nextOrfinish = traverse holeToEitherIntDigit board in
       case nextOrfinish of
          -- If there are no more variable, return the board. else loop through
          -- and try all possible digits
          (Right digitBoard) -> cons digitBoard nil
-         (Left nextVar) -> digits >>= \nextDigit -> 
+         (Left nextVar) -> digits >>= \nextDigit ->
             let newConstraints = fmap (instantiate nextVar nextDigit) constraints
                 newBoard = substitute nextVar nextDigit board in
                   case assertConstraints newConstraints of
-                     True -> solver newConstraints newBoard     
+                     True -> solver newConstraints newBoard
                      False -> nil
 
 
@@ -315,7 +301,7 @@ testBoard = Board (Four (Four Unknown Unknown (Known D1) Unknown)
                    (Four Unknown Unknown (Known D2) Unknown)
                    (Four Unknown Unknown (Known D3) Unknown)
                    (Four Unknown (Known D2) (Known D4) Unknown))
-   
+
 
 -- Digit to char function
 digToChar :: Digit -> Char
