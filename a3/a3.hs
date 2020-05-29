@@ -19,16 +19,17 @@ data Logic a
 -- With the rankNType notation you have to generate the constructors
 -- Need to change these up slightly as they are exactly the same as 
 -- in the prac minus the name List -> Logic difference
+
+-- Constructor for Logic type
 nil :: Logic a
 nil = Logic $ \_c n -> n
 
 
+-- Constructor for Logic type
 cons :: a -> Logic a -> Logic a
 cons h (Logic t) = Logic $ \c n -> c h (t c n)
 
 
--- Get foldRight for free
--- Might not be needed.
 instance Foldable Logic where
    foldr f z (Logic l) = l f z
 
@@ -62,10 +63,6 @@ instance Monad Logic where
 -- These ones should be good
 data State s a =
    State (s -> (a, s))
-
-
-runState :: State s a -> s -> (a, s)
-runState (State f) = f
 
 
 instance Functor (State s) where
@@ -169,17 +166,22 @@ data Constraint
 
 {- FUNCTIONS -}
 
+-- Runs the state function
+runState :: State s a -> s -> (a, s)
+runState (State f) = f
+
+
 -- Returns True if 2 sets of indices are dependant. i.e. in the same row
 -- column or sub-square. Will return false if equal, as we don't want a 
 -- constraint from itself to itself. Also will only return True for one
--- of 'dependant a b' and 'dependant b a'. To not produce duplicate constraints.
+-- of 'dependant a b' and 'dependant b a' as to not duplicate constraints.
 dependant :: (Index, Index) -> (Index, Index) -> Bool
 -- It doesn't actually matter how the < function is defined on indices. 
 -- As long as (a < b) != (b < a).
 dependant a@(x0, y0) b@(x1, y1) = if a < b then False
-   else if x0 == x1 && y0 == y1 then False
-   else if x0 == x1 || y0 == y1 then True
-   else getSquare a == getSquare b
+   else if x0 == x1 && y0 == y1 then False   -- not dependant on itself 
+   else if x0 == x1 || y0 == y1 then True    -- Same row or column
+   else getSquare a == getSquare b           -- Same sub-square
 
 
 -- Returns the sub-square in which this set of indices resides
@@ -192,13 +194,11 @@ getSquare (x, y) =
 
 
 -- Creates indices for a Board Hole
+-- This assumes the coOrds given to state will be in the order of
+-- traversal of a board. This function converts that order to x,y
+-- co-ordinates on the grid
 indexBoard :: Hole -> State (Index, Index) ((Index, Index), Hole)
-indexBoard hole = State (\coOrds -> ((coOrds, hole), changeCoOrds coOrds))
-
-
--- If we can somehow have these as an ordering then we can remove the duplicates
-changeCoOrds :: (Index, Index) -> (Index, Index)
-changeCoOrds coOrds = case coOrds of
+indexBoard hole = State (\coOrds -> ((coOrds, hole), case coOrds of
    (I0,I0) -> (I1,I0)
    (I1,I0) -> (I0,I1)
    (I0,I1) -> (I1,I1)
@@ -214,14 +214,15 @@ changeCoOrds coOrds = case coOrds of
    (I2,I2) -> (I3,I2)
    (I3,I2) -> (I2,I3)
    (I2,I3) -> (I3,I3)
-   (I3,I3) -> (I0,I0)
+   (I3,I3) -> (I0,I0)))
 
 
-secondLoop :: Board ((Index, Index), Hole) -> ((Index, Index), Hole) 
+-- Appends all dependancies for a single hole to the list of constraints
+appendConstraints :: Board ((Index, Index), Hole) -> ((Index, Index), Hole) 
    -> [Constraint] -> [Constraint]
-secondLoop board (coOrds, hole) constraints = 
-   foldr function constraints board
-   where function = \(coOrdsToCheck, holeToCheck) subConstraints ->
+appendConstraints board (coOrds, hole) constraints = 
+   foldr appendIfDependant constraints board
+   where appendIfDependant = \(coOrdsToCheck, holeToCheck) subConstraints ->
                         if dependant coOrds coOrdsToCheck then 
                            (NotEqual hole holeToCheck):subConstraints
                         else subConstraints
@@ -229,7 +230,7 @@ secondLoop board (coOrds, hole) constraints =
 
 -- List of all sudoku rules applied to a board
 generateConstraints :: Board Hole -> [Constraint]
-generateConstraints board = foldr (secondLoop indexedBoard) [] indexedBoard
+generateConstraints board = foldr (appendConstraints indexedBoard) [] indexedBoard
    where (indexedBoard, _) = runState (traverse indexBoard board) (I0, I0)
 
 
@@ -240,13 +241,13 @@ assertConstraints ((NotEqual h1 h2):tail) = (h1 /= h2) && assertConstraints tail
 
 
 -- Creates variables for unknown cells
--- Keep track of what number we are up to to give the variable a unique identifier
+-- Keep track of what number we are up to to give a unique identifier
 cellToHole :: Cell -> State Int Hole
 cellToHole Unknown = State (\int -> (Variable int, int + 1))
 cellToHole (Known digit) = State (\int -> (Concrete digit, int))
 
 
--- If the given int matches th varibale in the given hole, update
+-- If the given int matches the varibale in the given hole, update
 -- the hole with the given digit.
 fillHole :: Int -> Digit -> Hole -> Hole
 fillHole _ _ hole@(Concrete _) = hole
@@ -268,7 +269,7 @@ instantiate int digit (NotEqual hole1 hole2) =
    let fh = fillHole int digit in NotEqual (fh hole1) (fh hole2)
 
 
--- We could possible remove this function as either is isomorphic to hole
+-- Converts hole to Either Int Digit
 holeToEitherIntDigit :: Hole -> Either Int Digit
 holeToEitherIntDigit (Concrete digit) = Right digit
 holeToEitherIntDigit (Variable int) = Left int
@@ -288,6 +289,8 @@ solver :: [Constraint] -> Board Hole -> Logic (Board Digit)
 solver constraints board = 
    let nextOrfinish = traverse holeToEitherIntDigit board in
       case nextOrfinish of
+         -- If there are no more variable, return the board. else loop through
+         -- and try all possible digits
          (Right digitBoard) -> cons digitBoard nil
          (Left nextVar) -> digits >>= \nextDigit -> 
             let newConstraints = fmap (instantiate nextVar nextDigit) constraints
@@ -306,7 +309,15 @@ sudoku cellBoard = let (holeBoard, _) = runState (traverse cellToHole cellBoard)
 
 {- TESTING -}
 
--- digit to char
+-- A board to test
+testBoard :: Board Cell
+testBoard = Board (Four (Four Unknown Unknown (Known D1) Unknown)
+                   (Four Unknown Unknown (Known D2) Unknown)
+                   (Four Unknown Unknown (Known D3) Unknown)
+                   (Four Unknown (Known D2) (Known D4) Unknown))
+   
+
+-- Digit to char function
 digToChar :: Digit -> Char
 digToChar D1 = '1'
 digToChar D2 = '2'
@@ -314,6 +325,7 @@ digToChar D3 = '3'
 digToChar D4 = '4'
 
 
+-- Good for visualising a Four
 prettyFour :: (a -> Char) -> Four a -> Four a -> String
 prettyFour s (Four a b c d) (Four e f g h) =
    unlines
@@ -326,43 +338,17 @@ prettyFour s (Four a b c d) (Four e f g h) =
       ]
 
 
+-- Good for visualising a Board
 prettyBoard :: (a -> Char) -> Board a -> String
 prettyBoard s (Board (Four a b c d)) =
    prettyFour s a b ++ prettyFour s c d
 
 
--- Need to change this name
-final :: Board Digit -> String -> String
-final board string = unlines [string, prettyBoard digToChar board]
+-- Appends a board to a string
+showBoards :: Board Digit -> String -> String
+showBoards board string = unlines [string, prettyBoard digToChar board]
 
 
-testBoard :: Board Cell
-testBoard = Board (Four (Four Unknown Unknown (Known D1) Unknown)
-                   (Four Unknown Unknown (Known D2) Unknown)
-                   (Four Unknown Unknown (Known D3) Unknown)
-                   (Four Unknown (Known D2) (Known D4) Unknown))
-   
-   
-testBoard2 :: Board Cell
-testBoard2 = Board (Four (Four Unknown (Known D1) (Known D1) (Known D1))
-                   (Four (Known D1) (Known D1) (Known D2) (Known D1))
-                   (Four (Known D1) (Known D1) (Known D3) (Known D1))
-                   (Four (Known D1) (Known D2) (Known D4) (Known D1)))
-
-
-testBoard3 :: Board Cell
-testBoard3 = Board (Four (Four (Known D1) (Known D2) (Known D3) (Known D4))
-                   (Four       (Known D3) (Known D4) (Known D1) (Known D2))
-                   (Four       (Known D2) (Known D1) Unknown (Known D3))
-                   (Four       (Known D4) (Known D3) (Known D2) (Known D1)))
-
-
-testBoard4 :: Board Cell
-testBoard4 = Board (Four (Four Unknown Unknown Unknown Unknown)
-                   (Four       Unknown Unknown Unknown Unknown)
-                   (Four       Unknown Unknown Unknown Unknown)
-                   (Four       Unknown Unknown Unknown Unknown))
-
-
+-- To test the example board
 main :: IO ()
-main = putStr $ foldr final "" (sudoku testBoard)
+main = putStr $ foldr showBoards "" (sudoku testBoard)
