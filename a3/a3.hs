@@ -157,14 +157,14 @@ runState :: State s a -> s -> (a, s)
 runState (State f) = f
 
 
--- Returns True if 2 sets of indices are dependant. i.e. in the same row
--- column or sub-square. Will return false if equal, as we don't want a
--- constraint from itself to itself. Also will only return True for one
--- of 'dependant a b' and 'dependant b a' as to not duplicate constraints.
+-- Returns True if the indices are dependant. i.e. in the same row, column
+-- or sub-square. Will return false if equal, as we don't want a constraint
+-- from itself to itself. Also will only return True for one of
+-- 'dependant a b' and 'dependant b a' as to not duplicate constraints.
 dependant :: (Index, Index) -> (Index, Index) -> Bool
 -- It doesn't actually matter how the < function is defined on indices.
 -- As long as (a < b) != (b < a).
-dependant a@(x0, y0) b@(x1, y1) = if a < b then False
+dependant a@(x0, y0) b@(x1, y1) = if a < b then False    -- duplicates
    else if x0 == x1 && y0 == y1 then False   -- not dependant on itself
    else if x0 == x1 || y0 == y1 then True    -- Same row or column
    else getSquare a == getSquare b           -- Same sub-square
@@ -275,7 +275,7 @@ solver :: [Constraint] -> Board Hole -> Logic (Board Digit)
 solver constraints board =
    let nextOrfinish = traverse holeToEitherIntDigit board in
       case nextOrfinish of
-         -- If there are no more variable, return the board. else loop through
+         -- If there are no more variables, return the board. else loop through
          -- and try all possible digits
          (Right digitBoard) -> cons digitBoard nil
          (Left nextVar) -> digits >>= \nextDigit ->
